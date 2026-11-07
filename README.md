@@ -18,3 +18,11 @@ tests/test_timeout_retry.py  超时、重试、读回测试
 - 重试必须复用同一 `client_token`（create 场景）。
 - 写超时后必须读回确认 `written / not_written / unknown`。
 - 所有测试使用 mock，不访问真实飞书接口。
+
+## 运行
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+当前 7 个测试通过。基线失败证据见资产项目 `rpf-28` 的 `docs/evidence/baseline-test.txt`。

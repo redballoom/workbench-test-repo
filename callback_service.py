@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from bitable_client import BitableClient
+from bitable_client import BitableClient, BitableTimeoutError
 
 TASK_STATUS_MAP = {
     "created": "🟢 空闲",
@@ -35,11 +35,6 @@ def parse_datetime_to_ms(value: Optional[str | int | float]) -> Optional[int]:
 
 
 def update_task_record(client: BitableClient, task_uuid: str, status: str, start_time=None, end_time=None) -> dict:
-    """Find one Task row by taskUUID and update it.
-
-    Baseline behavior: one search + one update. A timeout in update is raised
-    to the caller. The build stage adds retry/readback semantics.
-    """
     records = client.search_records({
         "conjunction": "and",
         "conditions": [{"field_name": "taskUUID", "operator": "is", "value": [task_uuid]}],
@@ -53,11 +48,27 @@ def update_task_record(client: BitableClient, task_uuid: str, status: str, start
     if end_time is not None:
         fields["最后结束运行时间"] = parse_datetime_to_ms(end_time)
 
-    updated = 0
+    results = []
     for record in records:
-        client.update_record(record["record_id"], fields)
-        updated += 1
-    return {"success": True, "outcome": "written", "updated": updated, "message": f"updated {updated} rows"}
+        results.append(client.write_with_readback(record["record_id"], fields))
+
+    written = sum(1 for item in results if item.get("outcome") == "written")
+    unknown = any(item.get("outcome") == "unknown" for item in results)
+    updated = written
+    if unknown:
+        outcome = "unknown"
+    elif written == len(results):
+        outcome = "written"
+    else:
+        outcome = "not_written"
+    return {
+        "success": outcome == "written",
+        "outcome": outcome,
+        "updated": updated,
+        "attempts": max((item.get("attempts", 0) for item in results), default=0),
+        "records": results,
+        "message": f"{updated}/{len(results)} rows written",
+    }
 
 
 def process_yingdao_callback(client: BitableClient, callback_data: dict) -> dict:
